@@ -1,18 +1,35 @@
 import "./AlbumCard.css";
 import PropTypes from "prop-types";
 const AlbumCard = ({ image, header, content }) => {
-  
+ 
+
+  // Style object with conditional backgroundSize
+  const cardStyle = {
+    backgroundImage: `url('${image}')`,
+    backgroundRepeat: "no-repeat",
+    backgroundPosition: "center center",
+    backgroundSize: "auto 80%", 
+  };
+
   return (
-    <div className="card" style={{ backgroundImage: `url('${image}')`,backgroundRepeat: 'no-repeat',
-        backgroundPosition: 'center center', // Centers the background image
-        backgroundSize: 'cover'  }}>
-        
-     
+    <div className="card" style={cardStyle}>
       <div className="card__content">
         <p className="card__title">{header}</p>
-        <p className="card__description">
-          {content}
-        </p>
+        <p className="card__description">{content}</p>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          width="24"
+          height="24"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h6v6z"></path>
+          <polyline points="18 7 10 9 18 13"></polyline>
+        </svg>
       </div>
     </div>
   );
@@ -25,8 +42,3 @@ AlbumCard.propTypes = {
 };
 
 export default AlbumCard;
-
-
-// <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-// <path d="M20 5H4V19L13.2923 9.70649C13.6828 9.31595 14.3159 9.31591 14.7065 9.70641L20 15.0104V5ZM2 3.9934C2 3.44476 2.45531 3 2.9918 3H21.0082C21.556 3 22 3.44495 22 3.9934V20.0066C22 20.5552 21.5447 21 21.0082 21H2.9918C2.44405 21 2 20.5551 2 20.0066V3.9934ZM8 11C6.89543 11 6 10.1046 6 9C6 7.89543 6.89543 7 8 7C9.10457 7 10 7.89543 10 9C10 10.1046 9.10457 11 8 11Z"></path>
-// </svg>
