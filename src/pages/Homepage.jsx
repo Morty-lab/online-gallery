@@ -88,8 +88,6 @@ const Homepage = () => {
         const albumDate = item.albumDate.toDate();
         const monthNumber = albumDate.getMonth();
 
-        
-
         // Find the corresponding month object in the monthsWithDetails array
         const monthObject = months.find(
           (month) => month.number === monthNumber + 1
@@ -146,16 +144,19 @@ const Homepage = () => {
           </div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-4 ">
-            {months.map((item, index) => (
-              <AlbumCard
-                key={index}
-                id={item.number +'_'+selectedYear}
-                image={item.dedicatedImage || "assets/defaultImage.png"}
-                header={item.name}
-                content={item.photoURL}
-                // openAlbum={() => openAlbum(item.number)}
-              />
-            ))}
+            {months.length === 0 ? (
+              <p className="text-center text-gray-600">No records</p>
+            ) : (
+              months.map((item, index) => (
+                <AlbumCard
+                  key={index}
+                  id={item.number + "_" + selectedYear}
+                  image={item.dedicatedImage || "assets/defaultImage.png"}
+                  header={item.name}
+                  content={item.photoURL}
+                />
+              ))
+            )}
           </div>
         )}
       </div>
