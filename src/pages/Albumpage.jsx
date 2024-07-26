@@ -151,7 +151,7 @@ const Albumpage = () => {
             return (
               <div key={photo.id}>
                 <div
-                  className="group bg-gray-400 rounded-xl w-auto h-auto  max-h-52 max-w-[22rem] py-3 px-4  flex flex-col justify-items-center"
+                  className="group bg-gray-400 rounded-xl w-auto h-auto  max-w-[22rem] py-3 px-4  flex flex-col justify-items-center"
                   onClick={() => handleClick(photo.id)}
                 >
                   <img
