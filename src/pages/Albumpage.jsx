@@ -157,7 +157,7 @@ const Albumpage = () => {
                   <img
                     src={photo.photoURL}
                     alt="Image"
-                    className="max-w-80 w-auto h-auto max-h-44 rounded-xl "
+                    className="max-w-80 w-auto h-auto  rounded-xl "
                   />
                 <span className="bg-black bg-opacity-50 text-white py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200">
                     {photo.albumDate.toDate().toLocaleDateString("en-US", {
