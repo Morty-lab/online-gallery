@@ -1,201 +1,177 @@
-import { useParams } from "react-router-dom";
-import {
-  query,
-  getDocs,
-  orderBy,
-  startAt,
-  endAt,
-  collection,
-  Timestamp,
-  updateDoc,
-  deleteDoc,
-  doc,
-} from "firebase/firestore";
-import { firebaseDatabase } from "../config/firebase-config";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import Lightbox from "../components/Lightbox.jsx";
+import { ArrowLeftIcon, StarIcon } from "../components/Icons.jsx";
+import { deletePhoto, fetchMonthPhotos, MONTHS, pad2, setMonthCover, updatePhotoDate } from "../lib/gallery";
+import { useMode } from "../lib/mode";
 
 const Albumpage = () => {
   const { id } = useParams();
-  const [month, year] = id.split("_");
-  const [selectedImageId, setSelectedImageId] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [albumData, setAlbumData] = useState([]);
-
-  const handleClick = (id) => {
-    if (selectedImageId === id) {
-      setSelectedImageId(null); // Deselect if the same image is clicked again
-    } else {
-      setSelectedImageId(id);
-    }
-  };
-
-  const setAsDedicatedImage = async (newImageId) => {
-    try {
-      // Find the current dedicated image
-      const currentDedicatedImage = albumData.find(
-        (photo) => photo.dedicatedImage === true
-      );
-
-      // Update the current dedicated image to false if it exists
-      if (currentDedicatedImage) {
-        const currentDocRef = doc(
-          firebaseDatabase,
-          "photos",
-          currentDedicatedImage.id
-        );
-        await updateDoc(currentDocRef, { dedicatedImage: false });
-      }
-
-      // Set the new image as dedicated
-      const newDocRef = doc(firebaseDatabase, "photos", newImageId);
-      await updateDoc(newDocRef, { dedicatedImage: true });
-
-      // Update local state
-      setAlbumData((prevData) =>
-        prevData.map((photo) =>
-          photo.id === newImageId
-            ? { ...photo, dedicatedImage: true }
-            : {
-                ...photo,
-                dedicatedImage:
-                  photo.id === (currentDedicatedImage?.id || null)
-                    ? false
-                    : photo.dedicatedImage,
-              }
-        )
-      );
-      alert("Image has been set as dedicated!");
-    } catch (error) {
-      console.error("Error setting image as dedicated:", error);
-      alert("Failed to set image as dedicated.");
-    }
-  };
-
-  const deleteImage = async (imageId) => {
-    try {
-      const docRef = doc(firebaseDatabase, "photos", imageId);
-      await deleteDoc(docRef);
-      setAlbumData((prevData) =>
-        prevData.filter((photo) => photo.id !== imageId)
-      );
-    } catch (error) {
-      console.error("Error deleting image:", error);
-      alert("Failed to delete image.");
-    }
-  };
+  const [month, year] = id.split("_").map(Number);
+  const monthName = MONTHS[month - 1];
+  const [photos, setPhotos] = useState(null);
+  const [error, setError] = useState(null);
+  const [open, setOpen] = useState(null);
+  const { to, canEdit } = useMode();
 
   useEffect(() => {
-    setIsLoading(true);
-    const fetchDataForMonthAndYear = async (month, year) => {
-      const startDateObject = new Date(year, month - 1);
-      const endDateObject = new Date(year, month);
-
-      const startOfCurrentMonth = Timestamp.fromDate(startDateObject);
-      const endOfCurrentMonth = Timestamp.fromDate(endDateObject);
-
-      const q = query(
-        collection(firebaseDatabase, "photos"),
-        orderBy("albumDate"),
-        startAt(startOfCurrentMonth),
-        endAt(endOfCurrentMonth)
-      );
-
-      const querySnapshot = await getDocs(q);
-      const docs = [];
-      querySnapshot.forEach((doc) => {
-        docs.push({ id: doc.id, ...doc.data() });
+    let cancelled = false;
+    setPhotos(null);
+    fetchMonthPhotos(month, year)
+      .then((list) => !cancelled && setPhotos(list))
+      .catch((err) => {
+        console.error(err);
+        if (!cancelled) setError("Couldn't load this month. Check your connection and refresh.");
       });
-
-      return docs;
+    return () => {
+      cancelled = true;
     };
+  }, [month, year]);
 
-    fetchDataForMonthAndYear(month, year).then((data) => {
-      setAlbumData(data);
-      setIsLoading(false);
-    });
-  }, []);
+  const makeCover = useCallback(
+    async (photoId) => {
+      await setMonthCover(photoId, photos);
+      setPhotos((list) => list.map((p) => ({ ...p, dedicatedImage: p.id === photoId })));
+    },
+    [photos]
+  );
 
-  console.log(albumData);
+  const remove = useCallback(
+    async (photo) => {
+      await deletePhoto(photo);
+      const next = photos.filter((p) => p.id !== photo.id);
+      setPhotos(next);
+      setOpen((i) => (next.length === 0 ? null : Math.min(i, next.length - 1)));
+    },
+    [photos]
+  );
+
+  const changeDate = useCallback(
+    async (photo, date) => {
+      const updated = await updatePhotoDate(photo, date);
+      const next = updated.leavesMonth
+        ? photos.filter((p) => p.id !== photo.id)
+        : photos.map((p) => (p.id === photo.id ? updated : p)).sort((a, b) => a.date - b.date);
+      setPhotos(next);
+      if (updated.leavesMonth) setOpen((i) => (next.length === 0 ? null : Math.min(i, next.length - 1)));
+    },
+    [photos]
+  );
+
+  if (!monthName || !year) {
+    return (
+      <>
+        <main className="mx-auto max-w-xl px-4 py-24 text-center">
+          <h1 className="font-sign text-5xl font-black uppercase">No such month</h1>
+          <Link to={to("/")} className="btn-ghost mt-8 no-underline">
+            Back to the gallery
+          </Link>
+        </main>
+      </>
+    );
+  }
+
+  const loading = !photos && !error;
+  const count = photos?.length ?? 0;
+
   return (
-    <div className="flex p-6 ms-28">
-      <button
-        onClick={() => window.history.back()}
-        className="absolute top-0 left-0 m-4 bg-transparent  py-2 px-4 rounded"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="32"
-          height="32"
-          fill="#000000"
-          viewBox="0 0 256 256"
-          className="hover:fill-[#2d5a6c]"
-        >
-          <path d="M224,128a8,8,0,0,1-8,8H59.31l58.35,58.34a8,8,0,0,1-11.32,11.32l-72-72a8,8,0,0,1,0-11.32l72-72a8,8,0,0,1,11.32,11.32L59.31,120H216A8,8,0,0,1,224,128Z"></path>
-        </svg>
-      </button>
-      <div className="grid grid-cols-3 gap-4">
-        {isLoading ? (
-          <div className="flex items-center justify-center w-full h-full">
-            {/* Wrapper div for the Lottie player */}
-            <dotlottie-player
-              src="https://lottie.host/042f279f-8a73-4849-ae2f-76c4b1932560/tIxxIJ5lRU.json"
-              background="transparent"
-              speed="1"
-              style={{ width: "500px", height: "500px" }}
-              loop
-              autoplay
-            ></dotlottie-player>
+    <>
+      <main className="mx-auto max-w-7xl px-4 pb-24 sm:px-8">
+        <section className="pb-8 pt-6 sm:pb-12 sm:pt-10">
+          <Link
+            to={to(`/?year=${year}`)}
+            className="inline-flex items-center gap-2 text-sm font-semibold text-haze no-underline transition-colors hover:text-paper"
+          >
+            <ArrowLeftIcon className="h-4 w-4" />
+            All of {year}
+          </Link>
+          <div className="mt-4 flex flex-wrap items-end gap-x-6 gap-y-2">
+            <h1 className="font-sign text-6xl font-black uppercase leading-[0.85] sm:text-8xl">{monthName}</h1>
+            <p className="stamp pb-2 text-sm text-haze">
+              {pad2(month)} · {year} {loading ? "" : `· ${count} photo${count === 1 ? "" : "s"}`}
+            </p>
           </div>
-        ) : (
-          albumData.map((photo) => {
-            return (
-              <div key={photo.id}>
-                <div
-                  className="group bg-gray-400 rounded-xl w-auto h-auto  max-w-[22rem] py-3 px-4  flex flex-col justify-items-center"
-                  onClick={() => handleClick(photo.id)}
+        </section>
+
+        {error && (
+          <p role="alert" className="rounded-lg bg-lamp/15 px-4 py-3 ring-1 ring-inset ring-lamp/40">
+            {error}
+          </p>
+        )}
+
+        {loading && (
+          <div className="columns-2 gap-4 sm:columns-3 lg:columns-4" aria-hidden="true">
+            {[4 / 3, 3 / 4, 1, 4 / 3, 3 / 4, 4 / 3, 1, 3 / 4].map((ratio, i) => (
+              <div key={i} className="mb-4 break-inside-avoid bg-paper/[0.06] p-1.5">
+                <div className="skeleton w-full" style={{ aspectRatio: ratio }} />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {photos && count === 0 && (
+          <div className="mx-auto max-w-md py-16 text-center">
+            <h2 className="font-sign text-4xl font-black uppercase">Nothing from {monthName} yet</h2>
+            {canEdit ? (
+              <>
+                <p className="mt-3 text-haze">Photos dated in {monthName} {year} will land here.</p>
+                <Link to={`/dashboard/upload?date=${year}-${pad2(month)}-01`} className="btn-lamp mt-8 no-underline">
+                  Add photos to {monthName}
+                </Link>
+              </>
+            ) : (
+              <p className="mt-3 text-haze">No photos from this month.</p>
+            )}
+          </div>
+        )}
+
+        {photos && count > 0 && (
+          <ul className="columns-2 gap-3 sm:columns-3 sm:gap-4 lg:columns-4">
+            {photos.map((photo, i) => (
+              <li key={photo.id} className="mb-3 break-inside-avoid sm:mb-4">
+                <button
+                  type="button"
+                  onClick={() => setOpen(i)}
+                  className="group relative block w-full bg-paper p-1.5 text-left shadow-[0_14px_24px_-14px_rgb(0_0_0/0.7)] transition-transform duration-300 ease-out hover:-translate-y-1"
+                  aria-label={`Open photo ${i + 1}${canEdit && photo.dedicatedImage ? ", month cover" : ""}`}
                 >
                   <img
-                    src={photo.photoURL}
-                    alt="Image"
-                    className="max-w-80 w-auto h-auto  rounded-xl "
+                    src={photo.thumbURL}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    className="block w-full animate-develop"
                   />
-                <span className="bg-black bg-opacity-50 text-white py-1 px-2 rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-                    {photo.albumDate.toDate().toLocaleDateString("en-US", {
-                      month: "long",
-                      day: "numeric",
-                      year: "numeric",
-                    })}
-                  </span> 
-                </div>
-                
-                {selectedImageId === photo.id && (
-                  <>
-                    <button
-                      className="z-50 mt-2 py-2 px-4 bg-blue-500 text-white rounded-md hover:bg-blue-600 focus:outline-none transition-colors duration-200"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setAsDedicatedImage(photo.id);
-                      }}
-                    >
-                      Set as Dedicated Image
-                    </button>
-                    <button
-                      className="z-50 mt-2 py-2 px-4 bg-red-500 text-white rounded-md hover:bg-red-600 focus:outline-none transition-colors duration-200"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteImage(photo.id);
-                      }}  
-                    >
-                      Delete Image
-                    </button>
-                  </>
-                )}
-              </div>
-            );
-          })
+                  <span className="flex items-center justify-between px-0.5 pt-1.5 stamp text-ink-soft">
+                    <span>
+                      {photo.date?.toLocaleDateString("en-US", { month: "short", day: "2-digit" })}
+                    </span>
+                    {canEdit && photo.dedicatedImage && (
+                      <span className="inline-flex items-center gap-1 text-ink">
+                        <StarIcon className="h-3 w-3 fill-lamp stroke-lamp" /> Cover
+                      </span>
+                    )}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
-      </div>
-    </div>
+      </main>
+
+      {open !== null && photos?.[open] && (
+        <Lightbox
+          photos={photos}
+          index={open}
+          onIndex={setOpen}
+          onClose={() => setOpen(null)}
+          readOnly={!canEdit}
+          onMakeCover={makeCover}
+          onChangeDate={changeDate}
+          onDelete={remove}
+        />
+      )}
+    </>
   );
 };
 

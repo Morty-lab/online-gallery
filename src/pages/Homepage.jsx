@@ -1,166 +1,133 @@
-import { useEffect, useState } from "react";
-import { getDocs, collection } from "firebase/firestore";
-import { firebaseDatabase } from "../config/firebase-config";
-import AlbumCard from "../components/AlbumCard/AlbumCard.jsx";
-import Sidebar from "../components/Sidebar/Sidebar.jsx";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import BoothStrip, { BoothStripSkeleton } from "../components/BoothStrip.jsx";
+import { buildYear, fetchAllPhotos, MONTHS } from "../lib/gallery";
+import { useMode } from "../lib/mode";
+
+const YearTabs = ({ years, active, onSelect }) => (
+  <nav aria-label="Years" className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+    <ul className="flex gap-1">
+      {years.map((year) => {
+        const current = year === active;
+        return (
+          <li key={year}>
+            <button
+              type="button"
+              onClick={() => onSelect(year)}
+              aria-current={current ? "true" : undefined}
+              className={`relative rounded-full px-4 py-1.5 font-sign text-lg font-bold tabular-nums tracking-wide transition-colors duration-200 ${
+                current ? "bg-paper text-ink" : "text-haze hover:bg-white/10 hover:text-paper"
+              }`}
+            >
+              {current && (
+                <span
+                  aria-hidden="true"
+                  className="absolute -top-0.5 right-1 h-2 w-2 rounded-full bg-lamp shadow-[0_0_10px_2px_rgb(255_68_51/0.6)]"
+                />
+              )}
+              {year}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  </nav>
+);
 
 const Homepage = () => {
-  const galleryRef = collection(firebaseDatabase, "photos");
-  const [galleryData, setGalleryData] = useState([]);
-  const [selectedYear, setSelectedYear] = useState("");
-  const [filteredItems, setFilteredItems] = useState([]);
-  const [yearData, setYearData] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [months, setMonths] = useState([
-    { name: "January", number: 1 },
-    { name: "February", number: 2 },
-    { name: "March", number: 3 },
-    { name: "April", number: 4 },
-    { name: "May", number: 5 },
-    { name: "June", number: 6 },
-    { name: "July", number: 7 },
-    { name: "August", number: 8 },
-    { name: "September", number: 9 },
-    { name: "October", number: 10 },
-    { name: "November", number: 11 },
-    { name: "December", number: 12 },
-  ]);
+  const [photos, setPhotos] = useState(null);
+  const [error, setError] = useState(null);
+  const [params, setParams] = useSearchParams();
+  const { canEdit } = useMode();
 
-  //useEffect to fetch data
   useEffect(() => {
-    const getGallery = async () => {
-      setIsLoading(true);
-      const data = await getDocs(galleryRef);
-      const filteredData = data.docs.map((doc) => ({
-        ...doc.data(),
-        id: doc.id,
-      }));
-      setGalleryData(filteredData);
-      setIsLoading(false);
+    let cancelled = false;
+    fetchAllPhotos()
+      .then((list) => !cancelled && setPhotos(list))
+      .catch((err) => {
+        console.error(err);
+        if (!cancelled) setError("Couldn't load the gallery. Check your connection and refresh.");
+      });
+    return () => {
+      cancelled = true;
     };
-
-    getGallery();
   }, []);
 
-  //useEffect to get years
-  useEffect(() => {
-    if (galleryData.length > 0) {
-      const years = galleryData.map((item) =>
-        item.albumDate.toDate().getFullYear()
-      );
-      const uniqueYears = [...new Set(years)];
-      // Sort the years in descending order
-      setYearData(uniqueYears.sort((a, b) => b - a));
-    }
+  const years = useMemo(() => {
+    if (!photos) return [];
+    return [...new Set(photos.map((p) => p.date.getFullYear()))].sort((a, b) => b - a);
+  }, [photos]);
 
-    const years = galleryData.map((item) =>
-      item.albumDate.toDate().getFullYear()
-    );
+  const requested = Number(params.get("year"));
+  const year = years.includes(requested) ? requested : years[0];
+  const months = useMemo(() => (photos && year ? buildYear(photos, year) : []), [photos, year]);
+  const yearCount = months.reduce((sum, m) => sum + m.photos.length, 0);
+  const activeMonths = months.filter((m) => m.photos.length).length;
 
-    // Find the maximum year
-    const maxYear = Math.max(...years);
-    setSelectedYear(maxYear);
-  }, [galleryData]);
+  const selectYear = (y) => setParams(y === years[0] ? {} : { year: String(y) });
+  const loading = !photos && !error;
 
-  //useEffect to filter data by years
-  useEffect(() => {
-    if (selectedYear) {
-      const filteredByYear = galleryData.filter(
-        (item) =>
-          item.albumDate.toDate().getFullYear() === parseInt(selectedYear)
-      );
-      setFilteredItems(filteredByYear);
-    } else {
-      setFilteredItems(galleryData);
-    }
-  }, [selectedYear, galleryData]);
-
-  // useEffect to push data to months
-  useEffect(() => {
-    if (selectedYear) {
-      const filteredByYear = galleryData.filter(
-        (item) =>
-          item.albumDate.toDate().getFullYear() === parseInt(selectedYear)
-      );
-      // Map through the filteredByYear array
-      filteredByYear.forEach((item) => {
-        // Get the month number from the item's date
-        const albumDate = item.albumDate.toDate();
-        const monthNumber = albumDate.getMonth();
-
-        // Find the corresponding month object in the monthsWithDetails array
-        const monthObject = months.find(
-          (month) => month.number === monthNumber + 1
-        );
-
-        // If the month object exists and has dedicatedImage: true, add confirmed: true
-        if (monthObject && item.dedicatedImage == true) {
-          monthObject.dedicatedImage = item.photoURL;
-        }
-      });
-    }
-  }, [selectedYear]);
-
-  //select year function
-  const handleYearSelect = (year) => {
-    setSelectedYear(year);
-
-    setMonths([
-      { name: "January", number: 1 },
-      { name: "February", number: 2 },
-      { name: "March", number: 3 },
-      { name: "April", number: 4 },
-      { name: "May", number: 5 },
-      { name: "June", number: 6 },
-      { name: "July", number: 7 },
-      { name: "August", number: 8 },
-      { name: "September", number: 9 },
-      { name: "October", number: 10 },
-      { name: "November", number: 11 },
-      { name: "December", number: 12 },
-    ]);
-  };
-
-  // console.log(filteredItems);
-  console.log(months);
   return (
-    <div className="flex">
-      <div className="py-5 px-2">
-        <Sidebar arr={yearData} onSelectYear={handleYearSelect} />
-      </div>
-
-      <div className="flex-grow bg-gray-200 p-5 lg:px-32 lg:pt-12 ">
-        {isLoading ? (
-          <div className="flex items-center justify-center w-full h-full">
-            {/* Wrapper div for the Lottie player */}
-            <dotlottie-player
-              src="https://lottie.host/042f279f-8a73-4849-ae2f-76c4b1932560/tIxxIJ5lRU.json"
-              background="transparent"
-              speed="1"
-              style={{ width: "500px", height: "500px" }}
-              loop
-              autoplay
-            ></dotlottie-player>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-4 ">
-            {months.length === 0 ? (
-              <p className="text-center text-gray-600">No records</p>
+    <>
+      <main className="mx-auto max-w-7xl px-4 pb-24 sm:px-8">
+        <section className="flex flex-col gap-6 pb-10 pt-8 sm:pt-12 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            {loading ? (
+              <div className="skeleton h-24 w-64 rounded sm:h-36 sm:w-96" />
             ) : (
-              months.map((item, index) => (
-                <AlbumCard
-                  key={index}
-                  id={item.number + "_" + selectedYear}
-                  image={item.dedicatedImage || "assets/defaultImage.png"}
-                  header={item.name}
-                  content={item.photoURL}
-                />
-              ))
+              <h1 className="font-sign text-[5.5rem] font-black leading-[0.82] tracking-[-0.01em] text-paper tabular-nums sm:text-[8rem]">
+                {year ?? "Our year"}
+              </h1>
+            )}
+            {!loading && year && (
+              <p className="mt-4 text-haze">
+                <span className="font-semibold text-paper">{yearCount}</span> photo{yearCount === 1 ? "" : "s"} across{" "}
+                <span className="font-semibold text-paper">{activeMonths}</span> of 12 months
+              </p>
+            )}
+          </div>
+          {years.length > 1 && <YearTabs years={years} active={year} onSelect={selectYear} />}
+        </section>
+
+        {error && (
+          <p role="alert" className="rounded-lg bg-lamp/15 px-4 py-3 text-paper ring-1 ring-inset ring-lamp/40">
+            {error}
+          </p>
+        )}
+
+        {!loading && !error && years.length === 0 && (
+          <div className="mx-auto max-w-md py-20 text-center">
+            <h2 className="font-sign text-4xl font-black uppercase">The booth is empty</h2>
+            {canEdit ? (
+              <>
+                <p className="mt-3 text-haze">Add your first photos and they&apos;ll show up here, sorted by month.</p>
+                <Link to="/dashboard/upload" className="btn-lamp mt-8 no-underline">
+                  Add photos
+                </Link>
+              </>
+            ) : (
+              <p className="mt-3 text-haze">No photos yet. Check back soon.</p>
             )}
           </div>
         )}
-      </div>
-    </div>
+
+        {(loading || months.length > 0) && (
+          <ol className="grid grid-cols-2 gap-x-5 gap-y-10 sm:grid-cols-3 sm:gap-x-8 lg:grid-cols-4 xl:grid-cols-6">
+            {loading
+              ? MONTHS.map((name, i) => (
+                  <li key={name}>
+                    <BoothStripSkeleton index={i} />
+                  </li>
+                ))
+              : months.map((month) => (
+                  <li key={month.name}>
+                    <BoothStrip month={month} year={year} />
+                  </li>
+                ))}
+          </ol>
+        )}
+      </main>
+    </>
   );
 };
 

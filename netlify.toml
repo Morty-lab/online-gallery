@@ -1,0 +1,35 @@
+# Netlify build settings. Deploys run on every push to main.
+#
+# The VITE_APPWRITE_* values are public client identifiers: Vite bakes them
+# into the browser bundle, so keeping them here is safe. Never put the
+# Appwrite API key (APPWRITE_API_KEY) here or in Netlify's env vars.
+# Values set in Netlify's dashboard override these.
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+  VITE_APPWRITE_ENDPOINT = "https://sgp.cloud.appwrite.io/v1"
+  VITE_APPWRITE_PROJECT_ID = "6b06b915003cb39930ab"
+  VITE_APPWRITE_DATABASE_ID = "gallery"
+  VITE_APPWRITE_TABLE_ID = "photos"
+  VITE_APPWRITE_BUCKET_ID = "photos"
+  VITE_APPWRITE_PREVIEWS = "false"
+
+# Single-page app: every path loads index.html (same as public/_redirects).
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Keep the sign-in and dashboard out of search engines.
+[[headers]]
+  for = "/sign-in"
+  [headers.values]
+    X-Robots-Tag = "noindex"
+[[headers]]
+  for = "/dashboard/*"
+  [headers.values]
+    X-Robots-Tag = "noindex"

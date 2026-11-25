@@ -7,11 +7,16 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "setup:appwrite": "node --env-file=.env.local scripts/setup-appwrite.mjs",
+    "migrate:firebase": "node --env-file=.env.local scripts/migrate-firebase-to-appwrite.mjs"
   },
   "dependencies": {
+    "@fontsource-variable/archivo": "^5.3.0",
+    "@fontsource-variable/big-shoulders-display": "^5.3.0",
+    "@fontsource/martian-mono": "^5.3.0",
+    "appwrite": "^29.3.1",
     "autoprefixer": "^10.4.19",
-    "firebase": "^10.12.2",
     "phosphor-icons": "^1.4.2",
     "postcss": "^8.4.38",
     "postcss-cli": "^11.0.0",
@@ -28,6 +33,8 @@
     "eslint-plugin-react": "^7.34.2",
     "eslint-plugin-react-hooks": "^4.6.2",
     "eslint-plugin-react-refresh": "^0.4.7",
+    "firebase": "^13.4.0",
+    "node-appwrite": "^32.0.0",
     "vite": "^5.3.1"
   }
 }

@@ -1,127 +1,239 @@
-// ImageUploader.js
-import { useState } from "react";
-import { firebaseDatabase, firebaseStorage } from "../config/firebase-config";
-import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
-import { collection, addDoc, Timestamp } from "firebase/firestore";
+import { useEffect, useRef, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { ArrowLeftIcon, CloseIcon, ImagesIcon } from "../components/Icons.jsx";
+import { MONTHS, uploadPhoto } from "../lib/gallery";
+
+const todayISO = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+
+// "2026-03-14" -> local midnight, not UTC (avoids landing in the previous month).
+const parseDay = (iso) => {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d);
+};
+
+let nextId = 0;
+const toItem = (file) => ({
+  id: ++nextId,
+  file,
+  preview: URL.createObjectURL(file),
+  progress: 0,
+  state: "ready", // ready | uploading | done | error
+});
 
 const ImageUploader = () => {
-  const [images, setImages] = useState([]);
+  const [params] = useSearchParams();
+  const navigate = useNavigate();
+  const inputRef = useRef(null);
+  const [items, setItems] = useState([]);
+  const [day, setDay] = useState(params.get("date") || todayISO());
+  const [dragging, setDragging] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [selectedDate, setSelectedDate] = useState("");
+  const [error, setError] = useState(null);
 
-  const handleImageChange = (event) => {
-    const files = Array.from(event.target.files);
-    setImages((prevImages) => [...prevImages, ...files]);
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  useEffect(() => () => itemsRef.current.forEach((i) => URL.revokeObjectURL(i.preview)), []);
+
+  const addFiles = (fileList) => {
+    const files = Array.from(fileList).filter((f) => f.type.startsWith("image/"));
+    const skipped = fileList.length - files.length;
+    setError(skipped ? `${skipped} file${skipped === 1 ? " isn't an image" : "s aren't images"} and ${skipped === 1 ? "was" : "were"} skipped.` : null);
+    if (files.length) setItems((list) => [...list, ...files.map(toItem)]);
   };
 
-  const handleDateChange = (event) => {
-    setSelectedDate(new Date(event.target.value));
-  };
+  // Paste a screenshot or copied photo straight in.
+  useEffect(() => {
+    const onPaste = (e) => {
+      if (uploading || !e.clipboardData?.files?.length) return;
+      addFiles(e.clipboardData.files);
+    };
+    window.addEventListener("paste", onPaste);
+    return () => window.removeEventListener("paste", onPaste);
+  });
 
-  const handleUpload = async () => {
-    if (!selectedDate) {
-      alert("Please select a date.");
-      return;
-    }
-
-    setUploading(true);
-
-    const uploadPromises = images.map(async (image) => {
-      const storageRef = ref(firebaseStorage, `images/${image.name}`);
-      const uploadTask = uploadBytesResumable(storageRef, image);
-
-      return new Promise((resolve, reject) => {
-        uploadTask.on(
-          "state_changed",
-          null,
-          (error) => reject(error),
-          async () => {
-            const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-            const docRef = await addDoc(
-              collection(firebaseDatabase, "photos"),
-              {
-                photoURL: downloadURL,
-                dedicatedImage: false,
-                albumDate: Timestamp.fromDate(new Date(selectedDate)),
-              }
-            );
-            resolve(docRef);
-          }
-        );
-      });
+  const removeItem = (id) =>
+    setItems((list) => {
+      const gone = list.find((i) => i.id === id);
+      if (gone) URL.revokeObjectURL(gone.preview);
+      return list.filter((i) => i.id !== id);
     });
 
-    try {
-      await Promise.all(uploadPromises);
-      alert("All images uploaded successfully!");
-    } catch (error) {
-      console.error("Error uploading images:", error);
-    } finally {
-      setUploading(false);
-      setImages([]);
+  const patch = (id, changes) => setItems((list) => list.map((i) => (i.id === id ? { ...i, ...changes } : i)));
+
+  const pending = items.filter((i) => i.state !== "done");
+  const date = day ? parseDay(day) : null;
+  const albumLabel = date ? `${MONTHS[date.getMonth()]} ${date.getFullYear()}` : null;
+
+  const handleUpload = async () => {
+    if (!date) return setError("Pick the date these photos were taken.");
+    if (!pending.length) return setError("Add at least one photo first.");
+    setError(null);
+    setUploading(true);
+
+    const results = await Promise.allSettled(
+      pending.map(async (item) => {
+        patch(item.id, { state: "uploading", progress: 0 });
+        try {
+          await uploadPhoto(item.file, date, (progress) => patch(item.id, { progress }));
+          patch(item.id, { state: "done", progress: 1 });
+        } catch (err) {
+          console.error(err);
+          patch(item.id, { state: "error" });
+          throw err;
+        }
+      })
+    );
+    setUploading(false);
+
+    const failed = results.filter((r) => r.status === "rejected").length;
+    if (failed) {
+      setError(`${failed} photo${failed === 1 ? "" : "s"} didn't upload. Check your connection, then try again — finished ones won't upload twice.`);
+      return;
     }
+    navigate(`/dashboard/album/${date.getMonth() + 1}_${date.getFullYear()}`);
   };
 
   return (
     <>
-      <button
-        onClick={() => window.history.back()}
-        className="absolute top-0 left-0 m-4 bg-transparent  py-2 px-4 rounded"
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="32"
-          height="32"
-          fill="#000000"
-          viewBox="0 0 256 256"
-          className="hover:fill-[#2d5a6c]"
-        >
-          <path d="M224,128a8,8,0,0,1-8,8H59.31l58.35,58.34a8,8,0,0,1-11.32,11.32l-72-72a8,8,0,0,1,0-11.32l72-72a8,8,0,0,1,11.32,11.32L59.31,120H216A8,8,0,0,1,224,128Z"></path>
-        </svg>
-      </button>
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 p-6">
-        <div className="w-full max-w-4xl p-6 bg-white rounded-lg shadow-md">
-          <input
-            type="file"
-            multiple
-            onChange={handleImageChange}
-            accept="image/*"
-            className="mb-4 block w-full text-sm text-gray-500
-                   file:mr-4 file:py-2 file:px-4
-                   file:rounded-full file:border-0
-                   file:text-sm file:font-semibold
-                   file:bg-[#2d5a6c] file:text-[#F5F5DC]
-                   hover:file:bg-[#ADD8E6] hover:file:text-[#2d5a6c]"
-          />
-          <input
-            type="date"
-            onChange={handleDateChange}
-            className="mb-4 block w-full px-4 py-2 text-sm text-gray-500 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-[#2d5a6c] bg-white"
-          />
-          <div className="flex flex-wrap gap-4 mb-4">
-            {images.map((image, index) => (
-              <div key={index} className="relative">
-                <img
-                  src={URL.createObjectURL(image)}
-                  alt={`Selected ${index}`}
-                  className="w-36 h-36 object-cover rounded-md border border-gray-200"
-                />
-              </div>
-            ))}
-          </div>
-          <button
-            onClick={handleUpload}
-            disabled={uploading}
-            className={`w-full px-4 py-2 text-white hover:text-[#2d5a6c] rounded-md focus:outline-none ${
-              uploading
-                ? "bg-gray-400 cursor-not-allowed"
-                : "bg-[#2d5a6c] hover:bg-[#ADD8E6]"
+      <main className="mx-auto max-w-4xl px-4 pb-24 sm:px-8">
+        <section className="pb-8 pt-6 sm:pt-10">
+          <Link
+            to="/dashboard"
+            className="inline-flex items-center gap-2 text-sm font-semibold text-haze no-underline transition-colors hover:text-paper"
+          >
+            <ArrowLeftIcon className="h-4 w-4" />
+            Albums
+          </Link>
+          <h1 className="mt-4 font-sign text-6xl font-black uppercase leading-[0.85] sm:text-8xl">Into the booth</h1>
+          <p className="mt-4 max-w-prose text-haze">
+            Pick the day, drop in the photos. They&apos;ll file themselves under that month.
+          </p>
+        </section>
+
+        <div className="grid gap-6">
+          <label className="grid gap-2 sm:max-w-xs">
+            <span className="text-sm font-semibold">Taken on</span>
+            <input
+              type="date"
+              value={day}
+              max={todayISO()}
+              onChange={(e) => setDay(e.target.value)}
+              disabled={uploading}
+              className="rounded-lg border-0 bg-white/[0.07] px-4 py-3 font-stamp text-sm text-paper ring-1 ring-inset ring-curtain-line [color-scheme:dark] focus:outline-none focus:ring-2 focus:ring-paper"
+            />
+            {albumLabel && <span className="text-sm text-haze">Goes into {albumLabel}</span>}
+          </label>
+
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (!uploading) setDragging(true);
+            }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragging(false);
+              if (!uploading) addFiles(e.dataTransfer.files);
+            }}
+            className={`relative grid place-items-center rounded-xl border-2 border-dashed px-6 py-12 text-center transition-colors duration-200 ${
+              dragging ? "border-lamp bg-lamp/10" : "border-curtain-line bg-white/[0.03]"
             }`}
           >
-            {uploading ? "Uploading..." : "Upload Images"}
-          </button>
+            <ImagesIcon className="h-10 w-10 text-haze" />
+            <p className="mt-4 font-sign text-2xl font-bold uppercase tracking-wide">
+              {dragging ? "Let go to add" : "Drop photos here"}
+            </p>
+            <p className="mt-1 text-sm text-haze">or paste them, or</p>
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              disabled={uploading}
+              className="btn-ghost mt-4"
+            >
+              Choose from device
+            </button>
+            <input
+              ref={inputRef}
+              type="file"
+              multiple
+              accept="image/*"
+              className="sr-only"
+              tabIndex={-1}
+              onChange={(e) => {
+                addFiles(e.target.files);
+                e.target.value = "";
+              }}
+            />
+          </div>
+
+          {items.length > 0 && (
+            <ul className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
+              {items.map((item) => (
+                <li key={item.id} className="relative bg-paper p-1">
+                  <img
+                    src={item.preview}
+                    alt={item.file.name}
+                    className={`aspect-square w-full object-cover transition-opacity ${
+                      item.state === "uploading" ? "opacity-60" : ""
+                    }`}
+                  />
+                  <div className="mt-1 h-1 overflow-hidden rounded-full bg-ink/10" aria-hidden="true">
+                    <div
+                      className={`h-full transition-[width] duration-200 ${
+                        item.state === "error" ? "bg-lamp" : item.state === "done" ? "bg-ink" : "bg-lamp"
+                      }`}
+                      style={{ width: `${Math.round((item.state === "error" ? 1 : item.progress) * 100)}%` }}
+                    />
+                  </div>
+                  <span className="sr-only">
+                    {item.state === "done" ? "Uploaded" : item.state === "error" ? "Failed" : item.state === "uploading" ? `${Math.round(item.progress * 100)}%` : "Ready"}
+                  </span>
+                  {!uploading && item.state !== "done" && (
+                    <button
+                      type="button"
+                      onClick={() => removeItem(item.id)}
+                      aria-label={`Remove ${item.file.name}`}
+                      className="absolute -right-2 -top-2 grid h-7 w-7 place-items-center rounded-full bg-ink text-paper shadow-md transition-colors hover:bg-lamp"
+                    >
+                      <CloseIcon className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <p role="alert" className={`min-h-[1.5rem] text-sm ${error ? "text-lamp-hot" : ""}`}>
+            {error}
+          </p>
+
+          <div className="flex flex-wrap items-center gap-4">
+            <button type="button" onClick={handleUpload} disabled={uploading || !pending.length} className="btn-lamp px-8 py-3 text-base">
+              {uploading
+                ? "Uploading…"
+                : pending.length
+                ? `Upload ${pending.length} photo${pending.length === 1 ? "" : "s"}`
+                : "Upload photos"}
+            </button>
+            {items.length > 0 && !uploading && (
+              <button
+                type="button"
+                onClick={() => {
+                  items.forEach((i) => URL.revokeObjectURL(i.preview));
+                  setItems([]);
+                  setError(null);
+                }}
+                className="text-sm font-semibold text-haze underline hover:text-paper"
+              >
+                Clear all
+              </button>
+            )}
+          </div>
         </div>
-      </div>
+      </main>
     </>
   );
 };
